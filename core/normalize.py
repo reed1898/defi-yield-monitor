@@ -1,9 +1,6 @@
-"""Normalization helpers for adapter outputs."""
-
 from __future__ import annotations
 
-
-REQUIRED_KEYS = {
+REQUIRED_KEYS = [
     "chain",
     "protocol",
     "wallet",
@@ -15,19 +12,23 @@ REQUIRED_KEYS = {
     "health_factor",
     "rewards_usd_24h",
     "timestamp",
-}
+]
 
 
 def normalize_positions(rows: list[dict]) -> list[dict]:
-    normalized = []
+    normalized: list[dict] = []
     for row in rows:
-        merged = {k: row.get(k) for k in REQUIRED_KEYS}
-        merged.setdefault("supplied_usd", 0.0)
-        merged.setdefault("borrowed_usd", 0.0)
-        merged.setdefault("net_value_usd", merged["supplied_usd"] - merged["borrowed_usd"])
-        merged.setdefault("apy_supply", 0.0)
-        merged.setdefault("apy_borrow", 0.0)
-        merged.setdefault("health_factor", None)
-        merged.setdefault("rewards_usd_24h", 0.0)
-        normalized.append(merged)
+        item = {k: row.get(k) for k in REQUIRED_KEYS}
+        item["chain"] = str(item.get("chain") or "unknown").lower()
+        item["protocol"] = str(item.get("protocol") or "unknown").lower()
+        item["wallet"] = str(item.get("wallet") or "")
+        item["supplied_usd"] = float(item.get("supplied_usd") or 0.0)
+        item["borrowed_usd"] = float(item.get("borrowed_usd") or 0.0)
+        item["net_value_usd"] = float(item.get("net_value_usd") or (item["supplied_usd"] - item["borrowed_usd"]))
+        item["apy_supply"] = float(item.get("apy_supply") or 0.0)
+        item["apy_borrow"] = float(item.get("apy_borrow") or 0.0)
+        item["health_factor"] = item.get("health_factor")
+        item["rewards_usd_24h"] = float(item.get("rewards_usd_24h") or 0.0)
+        item["timestamp"] = item.get("timestamp")
+        normalized.append(item)
     return normalized

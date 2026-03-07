@@ -1,46 +1,69 @@
 # defi-yield-monitor
 
-Cross-chain DeFi lending yield monitor with protocol adapters.
+First usable version of a cross-chain DeFi lending monitor.
 
-## Scope (v0)
+## What works in this phase
 
-- Ethereum/BSC: Aave, Spark
-- Solana: Kamino
-- Unified portfolio and yield reporting
-- Daily report + threshold alerts
+- Aave positions via public GraphQL (`api.v3.aave.com`) on ETH + BSC
+- Kamino obligations via public API (`api.kamino.finance`) on Solana
+- Spark adapter wired in with graceful degradation (public wallet endpoint is unstable/undocumented)
+- Unified data model output:
+  - `chain/protocol/wallet/supplied_usd/borrowed_usd/net_value_usd/apy_supply/apy_borrow/health_factor/rewards_usd_24h/timestamp`
+- Aggregation report:
+  - total assets / debt / net value
+  - 24h / 7d PnL (marked `insufficient history` until snapshots accumulate)
+- Config-driven multi-wallet + multi-protocol + thresholds
+- Text daily report template suitable for upstream push sessions
 
-## Architecture
-
-- `adapters/`: protocol-specific data collectors
-- `core/`: normalization, aggregation, PnL logic
-- `pricing/`: token pricing clients
-- `storage/`: local snapshots for time-window comparisons
-- `reports/`: report formatting
-- `config/`: user config and thresholds
-
-## Quick Start
+## Install
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Configure
+
+```bash
 cp config/config.example.json config/config.json
+```
+
+Edit `config/config.json` with your wallets and protocols. No API key is required for this phase.
+
+## Run
+
+```bash
+python main.py --config config/config.json
 python main.py --config config/config.json --json
 ```
 
-## Output Metrics
+## Data sources
 
-- total_assets_usd
-- total_debt_usd
-- net_value_usd
-- pnl_24h_usd
-- pnl_7d_usd
-- per-protocol breakdown
-- risk flags (health factor and utilization thresholds)
+- Aave: `https://api.v3.aave.com/graphql`
+- Kamino: `https://api.kamino.finance/v2/kamino-market` and user obligations endpoints
+- Spark: currently attempts known public endpoints under `https://api-v2.spark.fi/api/v1/...`; logs warning and skips when unavailable
 
-## Roadmap
+## Notes on degradation and logs
 
-1. Implement Aave adapter (ETH/BSC)
-2. Implement Spark adapter (ETH)
-3. Implement Kamino adapter (Solana)
-4. Add price fallback chain and alert daemon
+- Each adapter logs warnings when endpoint/network/data parsing fails.
+- Failures are isolated per wallet/protocol; the whole run continues.
+- Spark currently degrades to warning-only if no public wallet endpoint is reachable.
+
+## Snapshot and PnL behavior
+
+- Snapshot path is controlled by `snapshot_path`.
+- The monitor stores rolling history (`last 60 points`) to compute 24h/7d PnL.
+- If baseline is missing, report explicitly shows `insufficient history`.
+
+## Project structure
+
+- `adapters/`: protocol fetchers
+- `core/`: normalization + aggregation
+- `storage/`: snapshot persistence
+- `reports/`: daily text renderer
+
+## Security
+
+- Do not commit private keys or RPC secrets.
+- This phase uses only public endpoints and wallet addresses.

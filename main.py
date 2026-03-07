@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Entry point for DeFi yield monitoring.
-
-Current version provides project skeleton and mockable adapter pipeline.
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
+from adapters.aave import fetch_positions as fetch_aave_positions
+from adapters.kamino import fetch_positions as fetch_kamino_positions
+from adapters.spark import fetch_positions as fetch_spark_positions
 from core.aggregate import aggregate_positions
 from core.normalize import normalize_positions
+from reports.daily import render_text_report
 from storage.snapshots import load_previous_snapshot, save_snapshot
 
 
@@ -26,30 +26,39 @@ def load_config(path: str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def collect_positions(_config: dict) -> list[dict]:
-    # Placeholder for protocol adapters. Adapters will return normalized position rows.
-    return []
+def collect_positions(config: dict) -> list[dict]:
+    rows: list[dict] = []
+    enabled = {(p.get("name"), p.get("chain")) for p in config.get("protocols", [])}
+
+    if ("aave", "eth") in enabled or ("aave", "bsc") in enabled:
+        rows.extend(fetch_aave_positions(config))
+    if ("spark", "eth") in enabled:
+        rows.extend(fetch_spark_positions(config))
+    if ("kamino", "solana") in enabled:
+        rows.extend(fetch_kamino_positions(config))
+
+    return rows
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
     args = parse_args()
     config = load_config(args.config)
 
     raw_positions = collect_positions(config)
     positions = normalize_positions(raw_positions)
 
-    previous = load_previous_snapshot(config.get("snapshot_path", "storage/snapshots.json"))
-    report = aggregate_positions(positions, previous)
+    snapshot_path = config.get("snapshot_path", "storage/snapshots.json")
+    previous = load_previous_snapshot(snapshot_path)
+    report = aggregate_positions(positions, previous=previous, thresholds=config.get("thresholds"))
 
-    save_snapshot(config.get("snapshot_path", "storage/snapshots.json"), report)
+    save_snapshot(snapshot_path, report, previous=previous)
 
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
     else:
-        print("DeFi Yield Monitor")
-        print(f"- Total assets: {report['total_assets_usd']:.2f} USD")
-        print(f"- Total debt: {report['total_debt_usd']:.2f} USD")
-        print(f"- Net value: {report['net_value_usd']:.2f} USD")
+        print(render_text_report(report, thresholds=config.get("thresholds")))
 
 
 if __name__ == "__main__":

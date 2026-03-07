@@ -2,29 +2,21 @@
   "snapshot_path": "storage/snapshots.json",
   "wallets": {
     "evm": [
-      "0xYourWallet"
+      "0xYourWallet1",
+      "0xYourWallet2"
     ],
     "solana": [
-      "YourSolanaWallet"
+      "YourSolanaWallet1"
     ]
   },
   "protocols": [
-    {
-      "chain": "eth",
-      "name": "aave"
-    },
-    {
-      "chain": "eth",
-      "name": "spark"
-    },
-    {
-      "chain": "solana",
-      "name": "kamino"
-    }
+    { "chain": "eth", "name": "aave" },
+    { "chain": "bsc", "name": "aave" },
+    { "chain": "eth", "name": "spark" },
+    { "chain": "solana", "name": "kamino" }
   ],
   "thresholds": {
     "min_health_factor": 1.25,
-    "max_offer_ratio": 0.5,
     "max_daily_drawdown_pct": 5
   }
 }
