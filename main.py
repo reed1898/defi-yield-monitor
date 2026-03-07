@@ -18,7 +18,9 @@ from storage.snapshots import load_previous_snapshot, save_snapshot
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DeFi yield monitor")
     parser.add_argument("--config", required=True, help="Path to config JSON")
-    parser.add_argument("--json", action="store_true", help="Print JSON output")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--text", action="store_true", help="Print text report output (default)")
+    output.add_argument("--json", action="store_true", help="Print JSON output")
     return parser.parse_args()
 
 

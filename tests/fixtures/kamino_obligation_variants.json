@@ -1,0 +1,54 @@
+[
+  {
+    "name": "primary_schema",
+    "input": {
+      "totalSupplyUsd": 1200.5,
+      "totalBorrowUsd": 310.25,
+      "supplyApy": 0.08,
+      "borrowApy": 0.13,
+      "healthFactor": 1.76,
+      "rewardsUsd24h": 2.5
+    },
+    "expected": {
+      "supplied_usd": 1200.5,
+      "borrowed_usd": 310.25,
+      "health_factor": 1.76
+    }
+  },
+  {
+    "name": "nested_totals_and_ltv",
+    "input": {
+      "totals": {
+        "depositsUsd": "999.0",
+        "borrowsUsd": "499.0"
+      },
+      "rates": {
+        "supplyApy": 0.02,
+        "borrowApy": 0.11
+      },
+      "currentLtv": 0.5
+    },
+    "expected": {
+      "supplied_usd": 999.0,
+      "borrowed_usd": 499.0,
+      "health_factor": 2.0
+    }
+  },
+  {
+    "name": "position_fallback",
+    "input": {
+      "position": {
+        "supplyUsd": 77,
+        "borrowUsd": 0
+      },
+      "riskMetrics": {
+        "loanToValue": 40
+      }
+    },
+    "expected": {
+      "supplied_usd": 77.0,
+      "borrowed_usd": 0.0,
+      "health_factor": 2.5
+    }
+  }
+]

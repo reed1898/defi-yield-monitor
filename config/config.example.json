@@ -15,6 +15,12 @@
     { "chain": "eth", "name": "spark" },
     { "chain": "solana", "name": "kamino" }
   ],
+  "spark": {
+    "rpc_endpoints": [
+      "https://eth.llamarpc.com",
+      "https://ethereum-rpc.publicnode.com"
+    ]
+  },
   "thresholds": {
     "min_health_factor": 1.25,
     "max_daily_drawdown_pct": 5

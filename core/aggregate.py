@@ -15,10 +15,14 @@ def _parse_ts(value: str | None) -> datetime | None:
 
 def _find_baseline(history: list[dict], now: datetime, delta: timedelta) -> float | None:
     cutoff = now - delta
-    candidates = [h for h in history if _parse_ts(h.get("timestamp")) and _parse_ts(h.get("timestamp")) <= cutoff]
+    candidates = []
+    for item in history:
+        ts = _parse_ts(item.get("timestamp"))
+        if ts and ts <= cutoff:
+            candidates.append((ts, item))
     if not candidates:
         return None
-    latest = sorted(candidates, key=lambda x: _parse_ts(x.get("timestamp")))[-1]
+    latest = sorted(candidates, key=lambda x: x[0])[-1][1]
     return float(latest.get("net_value_usd") or 0.0)
 
 
@@ -39,7 +43,7 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
         by_protocol[key]["net_value_usd"] += float(r.get("net_value_usd") or 0.0)
 
     now = datetime.now(timezone.utc)
-    history = list(previous.get("history") or [])
+    history = list(previous.get("snapshots") or previous.get("history") or [])
     base_24h = _find_baseline(history, now, timedelta(hours=24))
     base_7d = _find_baseline(history, now, timedelta(days=7))
 
@@ -47,6 +51,7 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
     pnl_7d = (net_value - base_7d) if base_7d is not None else None
 
     min_hf = thresholds.get("min_health_factor")
+    max_drawdown_pct = thresholds.get("max_daily_drawdown_pct")
     risk_rows = []
     for r in rows:
         hf = r.get("health_factor")
@@ -57,7 +62,30 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
         except Exception:
             continue
         if min_hf is not None and hf_val < float(min_hf):
-            risk_rows.append({"wallet": r.get("wallet"), "protocol": r.get("protocol"), "chain": r.get("chain"), "health_factor": hf_val})
+            risk_rows.append(
+                {
+                    "type": "health_factor",
+                    "wallet": r.get("wallet"),
+                    "protocol": r.get("protocol"),
+                    "chain": r.get("chain"),
+                    "health_factor": hf_val,
+                    "threshold": float(min_hf),
+                }
+            )
+
+    drawdown_pct_24h = None
+    if base_24h and base_24h > 0:
+        drawdown_pct_24h = ((base_24h - net_value) / base_24h) * 100.0
+        if max_drawdown_pct is not None and drawdown_pct_24h > float(max_drawdown_pct):
+            risk_rows.append(
+                {
+                    "type": "daily_drawdown",
+                    "drawdown_pct": drawdown_pct_24h,
+                    "threshold": float(max_drawdown_pct),
+                    "baseline_24h_usd": base_24h,
+                    "current_net_value_usd": net_value,
+                }
+            )
 
     return {
         "generated_at": now.replace(microsecond=0).isoformat(),
@@ -70,8 +98,11 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
         "rewards_24h_usd": rewards_24h,
         "protocol_breakdown": dict(by_protocol),
         "risk_flags": risk_rows,
+        "drawdown_24h_pct": drawdown_pct_24h,
         "notes": {
             "pnl_24h": "insufficient history" if pnl_24h is None else "ok",
             "pnl_7d": "insufficient history" if pnl_7d is None else "ok",
+            "baseline_24h": "missing" if base_24h is None else "ok",
+            "baseline_7d": "missing" if base_7d is None else "ok",
         },
     }
