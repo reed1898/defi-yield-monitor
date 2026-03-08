@@ -35,12 +35,21 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
     net_value = total_assets - total_debt
     rewards_24h = sum(float(r.get("rewards_usd_24h") or 0.0) for r in rows)
 
-    by_protocol = defaultdict(lambda: {"assets_usd": 0.0, "debt_usd": 0.0, "net_value_usd": 0.0})
+    by_protocol = defaultdict(lambda: {"assets_usd": 0.0, "debt_usd": 0.0, "net_value_usd": 0.0, "apy_supply": None, "apy_borrow": None, "assets": []})
     for r in rows:
         key = f"{r.get('chain')}:{r.get('protocol')}"
         by_protocol[key]["assets_usd"] += float(r.get("supplied_usd") or 0.0)
         by_protocol[key]["debt_usd"] += float(r.get("borrowed_usd") or 0.0)
         by_protocol[key]["net_value_usd"] += float(r.get("net_value_usd") or 0.0)
+        # Track APY (weighted average if multiple positions per protocol)
+        supply_apy = r.get("apy_supply")
+        if supply_apy and float(supply_apy) > 0:
+            by_protocol[key]["apy_supply"] = float(supply_apy)
+        borrow_apy = r.get("apy_borrow")
+        if borrow_apy and float(borrow_apy) > 0:
+            by_protocol[key]["apy_borrow"] = float(borrow_apy)
+        if r.get("assets"):
+            by_protocol[key]["assets"].extend(r["assets"])
 
     now = datetime.now(timezone.utc)
     history = list(previous.get("snapshots") or previous.get("history") or [])

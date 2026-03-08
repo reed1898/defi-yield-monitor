@@ -19,12 +19,24 @@ def save_snapshot(path: str, report: dict, previous: dict | None = None) -> None
 
     # Backward compatible: merge old history with new snapshots timeline.
     timeline = list(previous.get("snapshots") or previous.get("history") or [])
+    # Per-protocol breakdown for historical yield tracking
+    protocol_snapshot = {}
+    for key, data in (report.get("protocol_breakdown") or {}).items():
+        protocol_snapshot[key] = {
+            "assets_usd": data.get("assets_usd", 0.0),
+            "debt_usd": data.get("debt_usd", 0.0),
+            "net_value_usd": data.get("net_value_usd", 0.0),
+            "apy_supply": data.get("apy_supply"),
+            "apy_borrow": data.get("apy_borrow"),
+        }
+
     timeline.append(
         {
             "timestamp": report.get("generated_at"),
             "net_value_usd": report.get("net_value_usd", 0.0),
             "total_assets_usd": report.get("total_assets_usd", 0.0),
             "total_debt_usd": report.get("total_debt_usd", 0.0),
+            "protocols": protocol_snapshot,
         }
     )
     timeline = [row for row in timeline if row.get("timestamp")]

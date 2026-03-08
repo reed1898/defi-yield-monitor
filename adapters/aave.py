@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import requests
 
 AAVE_GQL = "https://api.v3.aave.com/graphql"
-AAVE_CHAIN_IDS = {"eth": 1, "bsc": 56}
+AAVE_CHAIN_IDS = {"eth": 1, "bsc": 56, "base": 8453}
 
 
 def _now_iso() -> str:
@@ -61,8 +61,8 @@ def fetch_positions(config: dict) -> list[dict]:
                     "supplied_usd": supplied,
                     "borrowed_usd": borrowed,
                     "net_value_usd": float(state.get("netWorth") or supplied - borrowed),
-                    "apy_supply": float((state.get("netAPY") or {}).get("value") or 0.0) * 100.0,
-                    "apy_borrow": float((state.get("userDebtAPY") or {}).get("value") or 0.0) * 100.0,
+                    "apy_supply": float((state.get("netAPY") or {}).get("value") or 0.0),
+                    "apy_borrow": float((state.get("userDebtAPY") or {}).get("value") or 0.0),
                     "health_factor": state.get("healthFactor"),
                     "rewards_usd_24h": 0.0,
                     "timestamp": _now_iso(),

@@ -36,8 +36,18 @@ def render_text_report(report: dict, thresholds: dict | None = None) -> str:
     ]
 
     for name, data in sorted((report.get("protocol_breakdown") or {}).items()):
+        apy_parts = []
+        supply_apy = data.get("apy_supply")
+        borrow_apy = data.get("apy_borrow")
+        if supply_apy:
+            apy_parts.append(f"supply APY {supply_apy * 100:.2f}%")
+        if borrow_apy:
+            apy_parts.append(f"borrow APY {borrow_apy * 100:.2f}%")
+        apy_str = f", {', '.join(apy_parts)}" if apy_parts else ""
+        assets_list = data.get("assets", [])
+        assets_str = f" [{', '.join(assets_list)}]" if assets_list else ""
         lines.append(
-            f"- {name}: assets {_fmt_money(data.get('assets_usd'))}, debt {_fmt_money(data.get('debt_usd'))}, net {_fmt_money(data.get('net_value_usd'))}"
+            f"- {name}: assets {_fmt_money(data.get('assets_usd'))}, debt {_fmt_money(data.get('debt_usd'))}, net {_fmt_money(data.get('net_value_usd'))}{apy_str}{assets_str}"
         )
 
     risk_flags = report.get("risk_flags") or []

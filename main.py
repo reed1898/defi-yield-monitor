@@ -12,6 +12,7 @@ from adapters.spark import fetch_positions as fetch_spark_positions
 from core.aggregate import aggregate_positions
 from core.normalize import normalize_positions
 from reports.daily import render_text_report
+from reports.yield_summary import compute_yield_summary, render_yield_text
 from storage.snapshots import load_previous_snapshot, save_snapshot
 
 
@@ -21,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--text", action="store_true", help="Print text report output (default)")
     output.add_argument("--json", action="store_true", help="Print JSON output")
+    output.add_argument("--yield-summary", action="store_true", dest="yield_summary", help="Print yield/earnings summary")
     return parser.parse_args()
 
 
@@ -30,13 +32,13 @@ def load_config(path: str) -> dict:
 
 def collect_positions(config: dict) -> list[dict]:
     rows: list[dict] = []
-    enabled = {(p.get("name"), p.get("chain")) for p in config.get("protocols", [])}
+    enabled_names = {p.get("name") for p in config.get("protocols", [])}
 
-    if ("aave", "eth") in enabled or ("aave", "bsc") in enabled:
+    if "aave" in enabled_names:
         rows.extend(fetch_aave_positions(config))
-    if ("spark", "eth") in enabled:
+    if "spark" in enabled_names or "spark_savings" in enabled_names:
         rows.extend(fetch_spark_positions(config))
-    if ("kamino", "solana") in enabled:
+    if "kamino" in enabled_names:
         rows.extend(fetch_kamino_positions(config))
 
     return rows
@@ -59,6 +61,24 @@ def main() -> None:
 
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
+    elif args.yield_summary:
+        snapshots = list((previous or {}).get("snapshots", []))
+        # Include the just-saved snapshot from this run
+        snapshots.append({
+            "timestamp": report.get("generated_at"),
+            "net_value_usd": report.get("net_value_usd", 0.0),
+            "total_assets_usd": report.get("total_assets_usd", 0.0),
+            "total_debt_usd": report.get("total_debt_usd", 0.0),
+            "protocols": {k: {
+                "assets_usd": v.get("assets_usd", 0.0),
+                "debt_usd": v.get("debt_usd", 0.0),
+                "net_value_usd": v.get("net_value_usd", 0.0),
+                "apy_supply": v.get("apy_supply"),
+                "apy_borrow": v.get("apy_borrow"),
+            } for k, v in (report.get("protocol_breakdown") or {}).items()},
+        })
+        summary = compute_yield_summary(snapshots)
+        print(render_yield_text(summary))
     else:
         print(render_text_report(report, thresholds=config.get("thresholds")))
 

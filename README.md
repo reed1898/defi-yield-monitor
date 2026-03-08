@@ -1,19 +1,23 @@
 # defi-yield-monitor
 
-First usable version of a cross-chain DeFi lending monitor.
+Cross-chain DeFi lending & savings yield monitor. Track positions, APY, and earnings across multiple protocols — no API keys required.
 
-## What works in this phase
+## Supported Protocols
 
-- Aave positions via public GraphQL (`api.v3.aave.com`) on ETH + BSC
-- Kamino obligations via public API (`api.kamino.finance`) on Solana
-- Spark adapter wired in with graceful degradation (public wallet endpoint is unstable/undocumented)
-- Unified data model output:
-  - `chain/protocol/wallet/supplied_usd/borrowed_usd/net_value_usd/apy_supply/apy_borrow/health_factor/rewards_usd_24h/timestamp`
-- Aggregation report:
-  - total assets / debt / net value
-  - 24h / 7d PnL (marked `insufficient history` until snapshots accumulate)
-- Config-driven multi-wallet + multi-protocol + thresholds
-- Text daily report template suitable for upstream push sessions
+| Protocol | Chain | Type | APY Source |
+|----------|-------|------|------------|
+| **Aave v3** | Ethereum, BSC | Lending | Aave GraphQL API |
+| **Spark Savings** | Ethereum | Savings (ERC-4626) | DefiLlama Yields API |
+| **SparkLend** | Ethereum, Base | Lending | On-chain RPC |
+| **Kamino** | Solana | Lending | Kamino Public API |
+
+## Features
+
+- 📊 **Multi-protocol aggregation** — unified view across chains and protocols
+- 📈 **Yield tracking** — 7-day and 30-day PnL with annualized APY calculation
+- 🔔 **Risk alerts** — health factor monitoring with configurable thresholds
+- 📸 **Historical snapshots** — rolling 180-point history with per-protocol breakdown
+- 🌐 **No API keys** — all data from public endpoints and on-chain RPC
 
 ## Install
 
@@ -29,41 +33,80 @@ pip install -r requirements.txt
 cp config/config.example.json config/config.json
 ```
 
-Edit `config/config.json` with your wallets and protocols. No API key is required for this phase.
+Edit `config/config.json` with your wallet addresses and enabled protocols.
 
-## Run
+## Usage
 
 ```bash
+# Daily report with positions and risk alerts
 python main.py --config config/config.json
+
+# JSON output for programmatic use
 python main.py --config config/config.json --json
+
+# Yield/earnings summary (7d/30d PnL)
+python main.py --config config/config.json --yield-summary
 ```
 
-## Data sources
+### Automated Daily Collection
 
-- Aave: `https://api.v3.aave.com/graphql`
-- Kamino: `https://api.kamino.finance/v2/kamino-market` and user obligations endpoints
-- Spark: currently attempts known public endpoints under `https://api-v2.spark.fi/api/v1/...`; logs warning and skips when unavailable
+Set up a cron job to collect snapshots twice daily. After ~7 days, the yield summary will show actual realized returns:
 
-## Notes on degradation and logs
+```bash
+# Example crontab entry (twice daily)
+13 9,21 * * * cd /path/to/defi-yield-monitor && python main.py --config config/config.json --text
+```
 
-- Each adapter logs warnings when endpoint/network/data parsing fails.
-- Failures are isolated per wallet/protocol; the whole run continues.
-- Spark currently degrades to warning-only if no public wallet endpoint is reachable.
+## Data Sources
 
-## Snapshot and PnL behavior
+| Source | Endpoint | Used For |
+|--------|----------|----------|
+| Aave v3 GraphQL | `api.v3.aave.com` | Positions + APY |
+| DefiLlama Yields | `yields.llama.fi/pools` | Spark Savings APY |
+| Kamino API | `api.kamino.finance` | Solana lending positions |
+| Ethereum RPC | Public nodes | Spark on-chain balances |
 
-- Snapshot path is controlled by `snapshot_path`.
-- The monitor stores rolling history (`last 60 points`) to compute 24h/7d PnL.
-- If baseline is missing, report explicitly shows `insufficient history`.
+## Project Structure
 
-## Project structure
+```
+adapters/        # Protocol-specific fetchers
+  aave.py        # Aave v3 via GraphQL
+  spark.py       # SparkLend + Spark Savings (ERC-4626)
+  kamino.py       # Kamino on Solana
+  defillama.py   # DefiLlama yields (supplementary APY)
+core/            # Normalization + aggregation
+storage/         # Snapshot persistence (rolling history)
+reports/         # Text report + yield summary renderers
+config/          # Configuration files
+```
 
-- `adapters/`: protocol fetchers
-- `core/`: normalization + aggregation
-- `storage/`: snapshot persistence
-- `reports/`: daily text renderer
+## Example Output
+
+```
+📊 Yield Summary
+
+Current Net Value: $2,100,612.78
+
+Current APY:
+  ethereum:aave: 1.55% ($678,270.29)
+  ethereum:spark_savings: 4.00% ($1,089,511.01)
+  solana:kamino: 4.55% ($332,831.48)
+
+7-Day Performance:
+  PnL: +$1,234.56 (+0.06%)
+  Annualized: 3.14%
+```
 
 ## Security
 
-- Do not commit private keys or RPC secrets.
-- This phase uses only public endpoints and wallet addresses.
+- No private keys or API secrets needed — read-only public data only
+- `config/config.json` and `storage/snapshots.json` are gitignored
+- Wallet addresses are public by nature (blockchain transparency)
+
+## License
+
+MIT
+
+## Contributing
+
+PRs welcome. If you want to add a new protocol adapter, check `adapters/aave.py` for the expected interface pattern.
