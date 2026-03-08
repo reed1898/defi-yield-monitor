@@ -103,6 +103,29 @@ Current APY:
 - `config/config.json` and `storage/snapshots.json` are gitignored
 - Wallet addresses are public by nature (blockchain transparency)
 
+## OpenClaw Skill
+
+This project includes an [OpenClaw](https://github.com/openclaw/openclaw) agent skill in the `skill/` directory. To use it with your OpenClaw agent:
+
+1. Clone this repo to your agent's workspace
+2. Install dependencies (`pip install -r requirements.txt`)
+3. Copy `config/config.example.json` → `config/config.json` and add your wallets
+4. Register the skill directory in your OpenClaw config:
+
+```json
+{
+  "skills": {
+    "entries": {
+      "defi-yield-monitor": {
+        "path": "/path/to/defi-yield-monitor/skill"
+      }
+    }
+  }
+}
+```
+
+Your agent can then monitor DeFi positions, check yields, and send automated reports.
+
 ## License
 
 MIT

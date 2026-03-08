@@ -13,6 +13,7 @@
     { "chain": "eth", "name": "aave" },
     { "chain": "bsc", "name": "aave" },
     { "chain": "eth", "name": "spark" },
+    { "chain": "eth", "name": "spark_savings" },
     { "chain": "solana", "name": "kamino" }
   ],
   "spark": {
