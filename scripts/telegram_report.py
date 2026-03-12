@@ -164,26 +164,46 @@ def build_report(report: dict, summary: dict, sol_price: float | None, snapshots
 
     lines.extend([
         "",
-        "📈 收益情况",
-        f"- 当前组合净值：{fmt_usd(report.get('net_value_usd'))}",
+        "📈 当前组合净值",
+        f"- {fmt_usd(report.get('net_value_usd'))}",
+        "",
+        "📅 今日收益",
     ])
 
     if not today:
-        lines.append("- 今天：历史数据不足")
+        lines.append("- 历史数据不足")
     else:
         lines.append(
-            f"- 今天：PnL {fmt_usd(today.get('pnl'))} ({fmt_pct(today.get('pnl_pct'), with_sign=True)})"
+            f"- PnL {fmt_usd(today.get('pnl'))} ({fmt_pct(today.get('pnl_pct'), with_sign=True)})"
         )
 
-    for key, data in [("7d", summary.get("7d")), ("30d", summary.get("30d"))]:
-        label = "7日" if key == "7d" else "30日"
-        has = summary.get(f"has_{key}", False)
-        if not has or not data:
-            lines.append(f"- {label}：历史数据不足")
-            continue
+    lines.extend([
+        "",
+        "📆 7日收益",
+    ])
+    data = summary.get("7d")
+    has = summary.get("has_7d", False)
+    if not has or not data:
+        lines.append("- 历史数据不足")
+    else:
         lines.append(
-            f"- {label}：PnL {fmt_usd(data.get('pnl'))} ({fmt_pct(data.get('pnl_pct'), with_sign=True)})｜年化 {fmt_pct(data.get('annualized_apy'))}"
+            f"- PnL {fmt_usd(data.get('pnl'))} ({fmt_pct(data.get('pnl_pct'), with_sign=True)})"
         )
+        lines.append(f"- 年化 {fmt_pct(data.get('annualized_apy'))}")
+
+    lines.extend([
+        "",
+        "🗓️ 30日收益",
+    ])
+    data = summary.get("30d")
+    has = summary.get("has_30d", False)
+    if not has or not data:
+        lines.append("- 历史数据不足")
+    else:
+        lines.append(
+            f"- PnL {fmt_usd(data.get('pnl'))} ({fmt_pct(data.get('pnl_pct'), with_sign=True)})"
+        )
+        lines.append(f"- 年化 {fmt_pct(data.get('annualized_apy'))}")
 
     lines.extend([
         "",
