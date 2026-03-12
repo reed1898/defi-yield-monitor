@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -68,7 +68,53 @@ def safe_div(a: float | None, b: float | None) -> float | None:
     return a / b
 
 
-def build_report(report: dict, summary: dict, sol_price: float | None) -> str:
+def parse_ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def compute_today_summary(snapshots: list[dict]) -> dict | None:
+    if not snapshots:
+        return None
+    latest = snapshots[-1]
+    latest_ts = parse_ts(latest.get("timestamp"))
+    if latest_ts is None:
+        return None
+
+    latest_local = latest_ts.astimezone(SH_TZ)
+    day_start_local = datetime.combine(latest_local.date(), time.min, tzinfo=SH_TZ)
+
+    baseline = None
+    for snap in snapshots:
+        ts = parse_ts(snap.get("timestamp"))
+        if ts is None:
+            continue
+        if ts.astimezone(SH_TZ) >= day_start_local:
+            baseline = snap
+            break
+
+    if baseline is None:
+        return None
+
+    start_value = float(baseline.get("net_value_usd") or 0.0)
+    end_value = float(latest.get("net_value_usd") or 0.0)
+    pnl = end_value - start_value
+    pnl_pct = (pnl / start_value * 100) if start_value > 0 else 0.0
+    return {
+        "start_ts": baseline.get("timestamp"),
+        "end_ts": latest.get("timestamp"),
+        "start_value": start_value,
+        "end_value": end_value,
+        "pnl": pnl,
+        "pnl_pct": pnl_pct,
+    }
+
+
+def build_report(report: dict, summary: dict, sol_price: float | None, snapshots: list[dict]) -> str:
     now_local = datetime.now(SH_TZ).strftime("%Y-%m-%d %H:%M:%S")
     protocols = report.get("protocol_breakdown") or {}
     kamino = protocols.get("solana:kamino", {})
@@ -114,11 +160,20 @@ def build_report(report: dict, summary: dict, sol_price: float | None) -> str:
     if not has_stable:
         lines.append("- 暂无稳定币仓位数据")
 
+    today = compute_today_summary(snapshots)
+
     lines.extend([
         "",
-        "📈 年化收益率",
+        "📈 收益情况",
         f"- 当前组合净值：{fmt_usd(report.get('net_value_usd'))}",
     ])
+
+    if not today:
+        lines.append("- 今天：历史数据不足")
+    else:
+        lines.append(
+            f"- 今天：PnL {fmt_usd(today.get('pnl'))} ({fmt_pct(today.get('pnl_pct'), with_sign=True)})"
+        )
 
     for key, data in [("7d", summary.get("7d")), ("30d", summary.get("30d"))]:
         label = "7日" if key == "7d" else "30日"
@@ -184,7 +239,7 @@ def main() -> None:
     })
     summary = compute_yield_summary(snapshots)
     sol_price = fetch_sol_price_usd()
-    print(build_report(report, summary, sol_price))
+    print(build_report(report, summary, sol_price, snapshots))
 
 
 if __name__ == "__main__":
