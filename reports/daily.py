@@ -3,13 +3,83 @@ from __future__ import annotations
 from datetime import datetime
 
 
+STABLE_UNITS = {"USD", "USDT", "USDC", "USDS", "DAI", "USDE"}
+
+
 def _fmt_money(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"${value:,.2f}"
 
 
-def render_text_report(report: dict, thresholds: dict | None = None) -> str:
+def _fmt_units(value: float | None, symbol: str | None = None) -> str:
+    if value is None:
+        return "N/A"
+    suffix = f" {symbol}" if symbol else ""
+    return f"{value:,.4f}{suffix}"
+
+
+def _build_cost_basis_map(config: dict | None) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    if not config:
+        return {}, {}
+
+    positions = ((config.get("cost_basis") or {}).get("positions") or [])
+    by_key: dict[str, dict] = {}
+    by_protocol: dict[str, list[dict]] = {}
+
+    for row in positions:
+        protocol = str(row.get("protocol") or "").lower()
+        chain = str(row.get("chain") or "").lower()
+        unit = row.get("unit") or row.get("token") or ""
+        key = f"{chain}:{protocol}"
+        amount = row.get("amount")
+        if amount is None:
+            amount = row.get("initial_amount")
+        try:
+            amount_value = float(amount or 0.0)
+        except Exception:
+            amount_value = 0.0
+
+        entry = by_key.setdefault(
+            key,
+            {"amount": 0.0, "unit": unit, "protocol": protocol, "chain": chain},
+        )
+        entry["amount"] += amount_value
+        if not entry.get("unit") and unit:
+            entry["unit"] = unit
+
+    for entry in by_key.values():
+        by_protocol.setdefault(entry["protocol"], []).append(entry)
+
+    return by_key, by_protocol
+
+
+def _match_cost_basis(name: str, config: dict | None) -> dict:
+    by_key, by_protocol = _build_cost_basis_map(config)
+    if name in by_key:
+        return by_key[name]
+
+    protocol = name.split(":", 1)[1] if ":" in name else name
+    candidates = by_protocol.get(protocol, [])
+    if len(candidates) == 1:
+        return candidates[0]
+    return {}
+
+
+def _infer_current_units(data: dict, baseline: dict) -> tuple[float | None, str | None]:
+    native_amount = data.get("native_amount")
+    native_symbol = data.get("native_symbol")
+    if native_amount and native_symbol:
+        return float(native_amount), native_symbol
+
+    unit = str(baseline.get("unit") or "")
+    if unit.upper() in STABLE_UNITS:
+        return float(data.get("assets_usd") or data.get("net_value_usd") or 0.0), unit
+
+    return None, unit or None
+
+
+def render_text_report(report: dict, thresholds: dict | None = None, config: dict | None = None) -> str:
     thresholds = thresholds or {}
     ts = report.get("generated_at") or datetime.utcnow().isoformat()
     pnl24 = report.get("pnl_24h_usd")
@@ -49,6 +119,20 @@ def render_text_report(report: dict, thresholds: dict | None = None) -> str:
         lines.append(
             f"- {name}: assets {_fmt_money(data.get('assets_usd'))}, debt {_fmt_money(data.get('debt_usd'))}, net {_fmt_money(data.get('net_value_usd'))}{apy_str}{assets_str}"
         )
+
+        baseline = _match_cost_basis(name, config)
+        current_units, current_symbol = _infer_current_units(data, baseline)
+        baseline_amount = baseline.get("amount")
+        baseline_unit = baseline.get("unit") or current_symbol
+
+        if current_units is not None and current_symbol:
+            lines.append(f"  current units: {_fmt_units(current_units, current_symbol)}")
+        if baseline and baseline_amount is not None and baseline_unit:
+            lines.append(f"  baseline units: {_fmt_units(float(baseline_amount), baseline_unit)}")
+            if current_units is not None:
+                pnl_units = current_units - float(baseline_amount)
+                pnl_pct = (pnl_units / float(baseline_amount) * 100.0) if float(baseline_amount) else 0.0
+                lines.append(f"  cumulative units pnl: {_fmt_units(pnl_units, current_symbol or baseline_unit)} ({pnl_pct:+.2f}%)")
 
     risk_flags = report.get("risk_flags") or []
     lines.append("")

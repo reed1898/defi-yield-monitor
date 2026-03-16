@@ -35,7 +35,7 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
     net_value = total_assets - total_debt
     rewards_24h = sum(float(r.get("rewards_usd_24h") or 0.0) for r in rows)
 
-    by_protocol = defaultdict(lambda: {"assets_usd": 0.0, "debt_usd": 0.0, "net_value_usd": 0.0, "apy_supply": None, "apy_borrow": None, "assets": []})
+    by_protocol = defaultdict(lambda: {"assets_usd": 0.0, "debt_usd": 0.0, "net_value_usd": 0.0, "apy_supply": None, "apy_borrow": None, "assets": [], "native_amount": 0.0, "native_symbol": ""})
     for r in rows:
         key = f"{r.get('chain')}:{r.get('protocol')}"
         by_protocol[key]["assets_usd"] += float(r.get("supplied_usd") or 0.0)
@@ -50,6 +50,12 @@ def aggregate_positions(rows: list[dict], previous: dict | None = None, threshol
             by_protocol[key]["apy_borrow"] = float(borrow_apy)
         if r.get("assets"):
             by_protocol[key]["assets"].extend(r["assets"])
+        native_amount = float(r.get("native_amount") or 0.0)
+        native_symbol = str(r.get("native_symbol") or "")
+        if native_amount > 0:
+            by_protocol[key]["native_amount"] += native_amount
+        if native_symbol and not by_protocol[key]["native_symbol"]:
+            by_protocol[key]["native_symbol"] = native_symbol
 
     now = datetime.now(timezone.utc)
     history = list(previous.get("snapshots") or previous.get("history") or [])

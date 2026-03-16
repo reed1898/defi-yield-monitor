@@ -80,7 +80,7 @@ def main() -> None:
         summary = compute_yield_summary(snapshots)
         print(render_yield_text(summary))
     else:
-        print(render_text_report(report, thresholds=config.get("thresholds")))
+        print(render_text_report(report, thresholds=config.get("thresholds"), config=config))
 
 
 if __name__ == "__main__":

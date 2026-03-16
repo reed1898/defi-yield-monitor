@@ -12,13 +12,18 @@ REQUIRED_KEYS = [
     "health_factor",
     "rewards_usd_24h",
     "timestamp",
+    "native_amount",
+    "native_symbol",
+    "assets",
 ]
 
 
 def normalize_positions(rows: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     for row in rows:
-        item = {k: row.get(k) for k in REQUIRED_KEYS}
+        item = dict(row)
+        for key in REQUIRED_KEYS:
+            item.setdefault(key, None)
         item["chain"] = str(item.get("chain") or "unknown").lower()
         item["protocol"] = str(item.get("protocol") or "unknown").lower()
         item["wallet"] = str(item.get("wallet") or "")
@@ -30,5 +35,8 @@ def normalize_positions(rows: list[dict]) -> list[dict]:
         item["health_factor"] = item.get("health_factor")
         item["rewards_usd_24h"] = float(item.get("rewards_usd_24h") or 0.0)
         item["timestamp"] = item.get("timestamp")
+        item["native_amount"] = float(item.get("native_amount") or 0.0)
+        item["native_symbol"] = str(item.get("native_symbol") or "")
+        item["assets"] = list(item.get("assets") or [])
         normalized.append(item)
     return normalized

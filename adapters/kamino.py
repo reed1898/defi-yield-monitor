@@ -65,7 +65,6 @@ def _extract_optional_float(obj: dict, paths: list[str]) -> float | None:
 
 def _resolve_health_factor(state: dict) -> float | None:
     """Try multiple paths to extract a health factor."""
-    # Direct high-level fields (some API versions may include these)
     hf = _extract_optional_float(
         state,
         [
@@ -77,14 +76,43 @@ def _resolve_health_factor(state: dict) -> float | None:
     if hf is not None:
         return hf
 
-    # Compute from deposited vs borrowed if both are non-zero.
+    ltv = _extract_optional_float(
+        state,
+        [
+            "currentLtv",
+            "loanToValue",
+            "riskMetrics.loanToValue",
+            "riskMetrics.currentLtv",
+        ],
+    )
+    if ltv is not None and ltv > 0:
+        ltv_ratio = ltv / 100.0 if ltv > 1 else ltv
+        if ltv_ratio > 0:
+            return 1.0 / ltv_ratio
+
     deposited = _sf_to_float(state.get("depositedValueSf", "0"))
     borrowed = _sf_to_float(state.get("borrowedValueSf", "0"))
     if borrowed > 0 and deposited > 0:
-        # Simplified: HF ≈ deposited / borrowed (ignoring LTV weights)
         return deposited / borrowed
 
     return None
+
+
+def _extract_native_amount(active_deposits: list[dict], reserve_metrics: dict[str, dict], supplied_usd: float | None = None) -> tuple[float | None, str | None]:
+    if len(active_deposits) != 1:
+        return None, None
+
+    dep = active_deposits[0]
+    reserve_addr = dep.get("reserve", "")
+    metrics = reserve_metrics.get(reserve_addr, {})
+    symbol = metrics.get("symbol") or None
+    market_value_usd = float(supplied_usd or dep.get("market_value_usd") or 0.0)
+    price_usd = float(metrics.get("price_usd") or 0.0)
+
+    if market_value_usd > 0 and price_usd > 0:
+        return market_value_usd / price_usd, symbol
+
+    return None, symbol
 
 
 def parse_obligation(obligation: dict, wallet: str) -> dict | None:
@@ -98,37 +126,51 @@ def parse_obligation(obligation: dict, wallet: str) -> dict | None:
     """
     state = obligation.get("state", obligation)  # fallback: obligation itself is the state
 
-    # --- Try scaled fixed-point fields first (raw on-chain format) ---
-    deposited_sf = state.get("depositedValueSf")
-    borrowed_sf = state.get("borrowedValueSf")
+    supplied = _extract_float(
+        obligation,
+        [
+            "refreshedStats.userTotalDeposit",
+            "refreshedStats.userTotalCollateralDeposit",
+        ],
+    )
+    borrowed = _extract_float(
+        obligation,
+        [
+            "refreshedStats.userTotalBorrow",
+            "refreshedStats.userTotalBorrowBorrowFactorAdjusted",
+        ],
+    )
 
-    if deposited_sf is not None or borrowed_sf is not None:
-        supplied = _sf_to_float(deposited_sf or "0")
-        borrowed = _sf_to_float(borrowed_sf or "0")
-    else:
-        # Fallback: try pre-computed USD fields (in case Kamino changes API)
-        supplied = _extract_float(
-            state,
-            [
-                "totalSupplyUsd",
-                "depositedValueUsd",
-                "depositsUsd",
-                "totalDepositsUsd",
-                "totals.depositsUsd",
-                "position.supplyUsd",
-            ],
-        )
-        borrowed = _extract_float(
-            state,
-            [
-                "totalBorrowUsd",
-                "borrowedValueUsd",
-                "borrowsUsd",
-                "totalBorrowsUsd",
-                "totals.borrowsUsd",
-                "position.borrowUsd",
-            ],
-        )
+    if supplied == 0.0 and borrowed == 0.0:
+        deposited_sf = state.get("depositedValueSf")
+        borrowed_sf = state.get("borrowedValueSf")
+
+        if deposited_sf is not None or borrowed_sf is not None:
+            supplied = _sf_to_float(deposited_sf or "0")
+            borrowed = _sf_to_float(borrowed_sf or "0")
+        else:
+            supplied = _extract_float(
+                state,
+                [
+                    "totalSupplyUsd",
+                    "depositedValueUsd",
+                    "depositsUsd",
+                    "totalDepositsUsd",
+                    "totals.depositsUsd",
+                    "position.supplyUsd",
+                ],
+            )
+            borrowed = _extract_float(
+                state,
+                [
+                    "totalBorrowUsd",
+                    "borrowedValueUsd",
+                    "borrowsUsd",
+                    "totalBorrowsUsd",
+                    "totals.borrowsUsd",
+                    "position.borrowUsd",
+                ],
+            )
 
     if supplied == 0.0 and borrowed == 0.0:
         return None
@@ -138,10 +180,11 @@ def parse_obligation(obligation: dict, wallet: str) -> dict | None:
     for dep in state.get("deposits", []):
         if isinstance(dep, dict) and dep.get("depositReserve") != EMPTY_RESERVE:
             mv = _sf_to_float(dep.get("marketValueSf", "0"))
+            amount_raw = dep.get("depositedAmount", "0")
             if mv > 0:
                 active_deposits.append({
                     "reserve": dep["depositReserve"],
-                    "amount_raw": dep.get("depositedAmount", "0"),
+                    "amount_raw": amount_raw,
                     "market_value_usd": mv,
                 })
 
@@ -173,11 +216,27 @@ def parse_obligation(obligation: dict, wallet: str) -> dict | None:
     }
 
 
-def _fetch_reserve_metrics(market: str) -> dict[str, dict]:
-    """Fetch reserve-level metrics (APY, TVL, etc.) for a given market.
+def _fetch_oracle_prices() -> dict[str, float]:
+    try:
+        resp = requests.get(f"{KAMINO_BASE}/oracles/prices", timeout=KAMINO_TIMEOUT)
+        if resp.status_code != 200:
+            return {}
+        rows = resp.json() or []
+        if not isinstance(rows, list):
+            return {}
+        out = {}
+        for row in rows:
+            mint = row.get("mint")
+            if mint:
+                out[mint] = _safe_float(row.get("price"))
+        return out
+    except Exception as exc:
+        logging.warning("kamino: failed to fetch oracle prices: %s", exc)
+        return {}
 
-    Returns a dict keyed by reserve address with supplyApy, borrowApy, etc.
-    """
+
+def _fetch_reserve_metrics(market: str, oracle_prices: dict[str, float] | None = None) -> dict[str, dict]:
+    """Fetch reserve-level metrics (APY, TVL, etc.) for a given market."""
     try:
         url = f"{KAMINO_BASE}/kamino-market/{market}/reserves/metrics"
         resp = requests.get(url, timeout=KAMINO_TIMEOUT)
@@ -190,12 +249,18 @@ def _fetch_reserve_metrics(market: str) -> dict[str, dict]:
         for r in reserves:
             addr = r.get("reserve", "")
             if addr:
+                mint = r.get("mintAddress") or r.get("liquidityMint") or r.get("liquidityTokenMint") or ""
                 result[addr] = {
-                    "symbol": r.get("liquidityToken", ""),
+                    "symbol": r.get("symbol") or r.get("liquidityToken") or "",
+                    "mint": mint,
+                    "decimals": int(r.get("decimals") or 0),
+                    "price_usd": _safe_float((oracle_prices or {}).get(mint)),
                     "supply_apy": _safe_float(r.get("supplyApy")),
                     "borrow_apy": _safe_float(r.get("borrowApy")),
                     "total_supply_usd": _safe_float(r.get("totalSupplyUsd")),
                     "total_borrow_usd": _safe_float(r.get("totalBorrowUsd")),
+                    "total_supply_native": _safe_float(r.get("totalSupply")),
+                    "total_borrow_native": _safe_float(r.get("totalBorrow")),
                     "max_ltv": _safe_float(r.get("maxLtv")),
                 }
         return result
@@ -219,7 +284,6 @@ def _enrich_with_reserve_metrics(row: dict, reserve_metrics: dict[str, dict]) ->
     if not deposits:
         return
 
-    # Weighted average APY across deposit reserves
     total_value = 0.0
     weighted_apy = 0.0
     symbols = []
@@ -241,6 +305,12 @@ def _enrich_with_reserve_metrics(row: dict, reserve_metrics: dict[str, dict]) ->
         row["apy_supply"] = weighted_apy / total_value
     if symbols:
         row["assets"] = symbols
+
+    native_amount, native_symbol = _extract_native_amount(deposits, reserve_metrics, supplied_usd=row.get("supplied_usd"))
+    if native_amount is not None:
+        row["native_amount"] = native_amount
+    if native_symbol:
+        row["native_symbol"] = native_symbol
 
     # Same for borrows
     borrows = row.get("borrows_detail", [])
@@ -276,6 +346,7 @@ def fetch_positions(config: dict) -> list[dict]:
         return []
 
     market_keys = [m.get("lendingMarket") for m in markets if m.get("lendingMarket")]
+    oracle_prices = _fetch_oracle_prices()
     logging.info("kamino: checking %d markets for %d wallets", len(market_keys), len(wallets))
 
     for wallet in wallets:
@@ -296,8 +367,7 @@ def fetch_positions(config: dict) -> list[dict]:
             if not obligations:
                 continue
 
-            # Fetch reserve metrics for APY enrichment (only when we have obligations)
-            reserve_metrics = _fetch_reserve_metrics(market)
+            reserve_metrics = _fetch_reserve_metrics(market, oracle_prices=oracle_prices)
 
             for obligation in obligations:
                 if not isinstance(obligation, dict):
